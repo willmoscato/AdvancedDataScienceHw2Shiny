@@ -9,10 +9,19 @@
 
 library(shiny)
 library(rsconnect)
-library(tidymodels)
-library(tidyverse)
-#library(bslib)
+library(tidyverse)         # for graphing and data cleaning
+library(tidymodels)        # for modeling
+library(stacks)            # for stacking models
+library(naniar)            # for examining missing values (NAs)
+library(lubridate)         # for date manipulation
+library(moderndive)        # for King County housing data
+library(vip)               # for variable importance plots
+library(DALEX)             # for model interpretation  
+library(DALEXtra)          # for extension of DALEX
+library(patchwork)         # for combining plots nicely
 
+#library(bslib)
+data("lending_club")
 model <- readRDS("lending_final_stack.rds")
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -23,36 +32,12 @@ ui <- fluidPage(
     # Sidebar with a slider input for number of bins 
     sidebarLayout(
         sidebarPanel(
-            selectInput("var",
-                        "Variable for CP:",
-                        choices = list(`Funded Amount`= "funded_amnt",
-                                        `Interest Rate` = "int_rate",
-                                       `Annual Income` = "annual_inc",
-                                       `Deliquent after 2 years` = "delinq_2yrs",
-                                       `Inquiries Last 6 Month` = "inq_last_6mnths",
-                                       `Revolving Utilization Rate` = "revol_util",
-                                       `Number of Accounts now Deliquent` = "acc_now_delinq",
-                                       `Open Installments in Last 6 months` = "open_il_6m",
-                                       `Open Installments in Last 12 months` = "open_il_12m",
-                                       `Open Installments in Last 24 months` = "open_il_24m",
-                                       `Total Balance of Installments` = "total_bal_il",
-                                       `Balance to Credit Limit` = "all_util",
-                                       `Personal Finance Inquires`= "inq_fi",
-                                       `Credit Inquiries Last 12 Months` = "inq_last_12m",
-                                       `Past Due Amount Owed Deliquent Accounts` = 'delinq_amnt',
-                                       `Number of Installment Accounts` = "num_il_tl",
-                                       `Total Installment Credit Limit` = "total_il_high_credit_limit")),
            
             sliderInput(inputId = "funded_amnt", 
                         label = "Funded Amount",
                         min = 1000, 
                         max = 40000, 
                         value = 40000),
-            sliderInput(inputId = "int_rate", 
-                        label = "Interest Rate",
-                        min = 5.32, 
-                        max = 28.99, 
-                        value = 28.99),
             sliderInput(inputId = "annual_inc", 
                         label = "Annual Income",
                         min = 0, 
@@ -128,6 +113,22 @@ ui <- fluidPage(
                     min = 0, 
                     max = 554119, 
                     value = 554119),
+        selectInput("term",
+                    "Term",
+                    choices = lending_club$term),
+        selectInput("sub_grade",
+                    "Sub Grade",
+                    choices = lending_club$sub_grade),
+        selectInput("addr_state",
+                       "State",
+                       choices = lending_club$addr_state),
+        selectInput("verification_status",
+                    "Verification Status",
+                    choices = lending_club$verification_status),
+        selectInput("emp_length",
+                    "Employment Length",
+                    choices = lending_club$emp_length),
+        submitButton(text = "Create my plot!")
         ),
        
         
@@ -141,17 +142,49 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
-    output$distPlot <- renderPlot({obs <- lending_training %>% slice(4)
-    obs %>% 
-        select(annual_inc) %>% 
+    output$distPlot <- renderPlot({min <- min(lending_club$int_rate)
+    max <- max(lending_club$int_rate)
+    
+    df <- data.frame(funded_amnt = input$"funded_amnt", 
+                     annual_inc = input$"annual_inc", 
+                     delinq_2yrs = input$"delinq_2years", 
+                     inq_last_6mths = input$"inq_last_6mnths",
+                     revol_util = input$"revol_util",
+                     acc_now_delinq = input$"acc_now_delinq",
+                     open_il_6m = input$"open_til_6m",
+                     open_il_12m = input$"open_til_12m",
+                     open_il_24m = input$"open_til_24m",
+                     total_bal_il = input$"total_bal_il",
+                     all_util = input$"all_util",
+                     inq_fi = input$"inq_fi",
+                     inq_last_12m = input$"inq_last_12m",
+                     delinq_amnt = input$"delinq_amnt",
+                     num_il_tl = input$"num_il_tl",
+                     total_il_high_credit_limit = input$"total_il_high_credit_limit",
+                     term = input$"term",
+                     sub_grade = input$"sub_grade",
+                     addr_state = input$"addr_state",
+                     verification_status = input$"verification_status",
+                     emp_length = input$"emp_length",
+                     int_rate = "int_rate")
+    
+    obs10 <- lending_club %>% slice(12)
+    
+    obs4_many <- obs10 %>% 
+        #there is probably a better way to do this
+        sample_n(size = 50, replace = TRUE) %>% 
+        select(-int_rate) %>% 
+        mutate(int_rate = seq(min, max, length.out = 50))
+    
+    obs4_many %>% 
+        select(int_rate) %>% 
         bind_cols(
             predict(model,
-                    new_data = obs, type = "prob")
-        ) %>% 
-        ggplot(aes(x = annual_inc,
-                   y = .pred_bad)) +
-        geom_line() +
-        labs(y = "Predicted Probability of Class Bad")})
+                    new_data = obs4_many, type = "prob")) %>% 
+                ggplot(aes(x = annual_inc,
+                           y = .pred_bad)) +
+                geom_line() +
+                labs(y = "Predicted Probability of Class Bad")})
 }
 
 # Run the application 
